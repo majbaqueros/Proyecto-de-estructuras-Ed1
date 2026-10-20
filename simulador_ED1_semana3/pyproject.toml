@@ -1,0 +1,14 @@
+[project]
+name = "ed1-simulador-logistico"
+version = "1.0.0"
+description = "Simulador de estructuras enlazadas y logistica con Flet"
+requires-python = ">=3.10"
+dependencies = ["flet==1.0.4"]
+
+[tool.flet]
+product = "ED1 Simulador Logistico"
+company = "Proyecto academico ED1"
+org = "edu.ed1"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
