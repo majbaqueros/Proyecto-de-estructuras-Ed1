@@ -1,1 +1,5 @@
-flet==1.0.4
+flet[all]==1.0.4
+fastapi==0.144.0
+SQLAlchemy>=2.0,<2.1
+psycopg[binary]>=3.2,<3.4
+argon2-cffi>=23.1,<26

@@ -77,15 +77,18 @@ def test_cola_circular_enlazada_limites():
 
 def test_prioridad_fifo_y_undo_registro():
     controlador = AppController()
-    controlador.crear_paquete('Norte',5,3)
-    controlador.crear_paquete('Sur',1,1)
-    controlador.crear_paquete('Este',1,1)
-    assert [x.destino for x in controlador.listar_paquetes()] == ['Sur','Este','Norte']
+    controlador.crear_paquete('Zona Norte',5,3)
+    controlador.crear_paquete('Zona Sur',1,1)
+    controlador.crear_paquete('Zona Este',1,1)
+    assert [x.destino for x in controlador.listar_paquetes()] == ['Zona Sur','Zona Este','Zona Norte']
     assert controlador.deshacer()[0] == 'registrar'
-    assert [x.destino for x in controlador.listar_paquetes()] == ['Sur','Norte']
-    assert controlador.despachar().destino == 'Sur'
+    assert [x.destino for x in controlador.listar_paquetes()] == ['Zona Sur','Zona Norte']
+    assert controlador.despachar() is None  # Vehículo en Centro; no se puede entregar Sur.
+    parada, entregados = controlador.avanzar_y_entregar()
+    assert parada == 'Zona Norte'
+    assert [p.destino for p in entregados] == ['Zona Norte']
     assert controlador.deshacer()[0] == 'despachar'
-    assert [x.destino for x in controlador.listar_paquetes()] == ['Sur','Norte']
+    assert [x.destino for x in controlador.listar_paquetes()] == ['Zona Sur','Zona Norte']
 
 
 def test_controlador_rutas_ajusta_actual_al_borrar():

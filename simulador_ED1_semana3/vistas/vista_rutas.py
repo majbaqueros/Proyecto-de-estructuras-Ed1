@@ -1,13 +1,17 @@
 """Recorrido de vehículos animado, sin manipular punteros en la capa Flet."""
 import asyncio
 import flet as ft
-def crear_tab_rutas(page: ft.Page, controller) -> ft.Container:
+
+
+def crear_tab_rutas(page: ft.Page, controller, devolver_actualizar=False,
+                   on_paquetes_actualizados=None):
     rutas = controller.rutas
     reproduciendo = False
     campo = ft.TextField(label="Nueva parada", hint_text="Ej. Zona Oeste", expand=True)
     lbl = ft.Text("Cada flecha representa un puntero; el último enlaza con el primero.")
     actual = ft.Text(weight=ft.FontWeight.BOLD, size=18)
     enlazado = ft.Text(size=12, color=ft.Colors.BLUE_GREY_700)
+    entregas = ft.Text("Entregas realizadas: 0", color=ft.Colors.GREEN_700, size=13)
     dibujo = ft.AnimatedSwitcher(
         content=ft.Container(content=ft.Text("Cargando recorrido...")),
         transition=ft.AnimatedSwitcherTransition.FADE,
@@ -16,6 +20,7 @@ def crear_tab_rutas(page: ft.Page, controller) -> ft.Container:
     )
     boton_play = ft.Button("▶ Recorrer una vuelta", icon=ft.Icons.PLAY_ARROW)
     boton_stop = ft.Button("■ Pausar", icon=ft.Icons.STOP, disabled=True)
+
     def dibujar():
         paradas = rutas.estado()
         tarjetas = []
@@ -40,7 +45,22 @@ def crear_tab_rutas(page: ft.Page, controller) -> ft.Container:
         ])
         actual.value = f"Vehículo {rutas.vehiculo} · parada actual: {rutas.actual or '—'}"
         enlazado.value = f"{rutas.cantidad} parada(s) · Punteros: {'CORRECTOS ✓' if rutas.verificar_integridad() else 'ERROR ✕'}"
+        entregas.value = (f"📦 Entregados: {controller.total_entregados}"
+                          + (f" · Último: {controller.ultima_entrega.id} → {controller.ultima_entrega.destino}"
+                             if controller.ultima_entrega else ""))
         page.update()
+
+    def actualizar_cola():
+        if on_paquetes_actualizados is not None:
+            on_paquetes_actualizados()
+
+    def mostrar_entregas(parada, paquetes):
+        if paquetes:
+            lbl.value = (f"✅ Entrega en {parada}: "
+                         + ", ".join(f"{p.id} (prioridad {p.prioridad})" for p in paquetes))
+        else:
+            lbl.value = f"🚚 Llegó a {parada}. No hay paquetes pendientes para esta zona."
+
     def agregar(e):
         try:
             rutas.agregar_parada(campo.value)
@@ -49,58 +69,81 @@ def crear_tab_rutas(page: ft.Page, controller) -> ft.Container:
         except ValueError as ex:
             lbl.value = str(ex)
         dibujar()
+        actualizar_cola()
+
     def quitar(e):
         nombre = campo.value.strip()
         if not nombre:
             lbl.value = "Escribe el nombre exacto de la parada a eliminar."
         else:
-            lbl.value = "Parada eliminada (búsqueda O(n))." if rutas.quitar_parada(nombre) else "No se encontró esa parada."
-            campo.value = ""
+            try:
+                lbl.value = ("Parada eliminada (búsqueda O(n))."
+                             if rutas.quitar_parada(nombre) else "No se encontró esa parada.")
+                campo.value = ""
+            except ValueError as ex:
+                lbl.value = f"❌ {ex}"
         dibujar()
+        actualizar_cola()
+
     def paso(direccion):
         if reproduciendo:
             return
-        if direccion > 0:
-            rutas.siguiente()
-        else:
-            rutas.anterior()
+        if controller.simulacion_activa:
+            lbl.value = "Pausa la simulación automática de Logística antes de mover el vehículo manualmente."
+            page.update()
+            return
+        parada, paquetes = controller.avanzar_y_entregar(direccion)
+        mostrar_entregas(parada, paquetes)
         dibujar()
+        actualizar_cola()
+
     async def recorrer():
         nonlocal reproduciendo
         try:
             for _ in range(rutas.cantidad):
                 if not reproduciendo:
                     break
-                rutas.siguiente()
+                parada, paquetes = controller.avanzar_y_entregar()
+                mostrar_entregas(parada, paquetes)
                 dibujar()
+                actualizar_cola()
                 await asyncio.sleep(0.85)
         finally:
             reproduciendo = False
+            controller.recorrido_manual_activo = False
             boton_play.disabled = False
             boton_stop.disabled = True
-            if rutas.cantidad:
+            if rutas.cantidad and not lbl.value.startswith("✅ Entrega"):
                 lbl.value = "Recorrido detenido. Puedes avanzar o retroceder manualmente."
             page.update()
+
     def iniciar(e):
         nonlocal reproduciendo
+        if controller.simulacion_activa:
+            lbl.value = "Pausa primero la simulación automática para recorrer una vuelta manualmente."
+            page.update()
+            return
         if reproduciendo or rutas.cantidad == 0:
             lbl.value = "No hay paradas disponibles." if rutas.cantidad == 0 else lbl.value
             page.update()
             return
         reproduciendo = True
+        controller.recorrido_manual_activo = True
         boton_play.disabled = True
         boton_stop.disabled = False
         page.update()
         page.run_task(recorrer)
+
     def detener(e):
         nonlocal reproduciendo
         reproduciendo = False
         boton_stop.disabled = True
         page.update()
+
     boton_play.on_click = iniciar
     boton_stop.on_click = detener
     dibujar()  # Estado inicial también sirve para escritorio, web y móvil.
-    return ft.Container(
+    contenedor = ft.Container(
         padding=16,
         content=ft.Column([
             ft.Text("🚚 Recorrido circular de vehículos", size=22, weight=ft.FontWeight.BOLD),
@@ -117,9 +160,12 @@ def crear_tab_rutas(page: ft.Page, controller) -> ft.Container:
                 ft.Button("Siguiente →", on_click=lambda e: paso(1)),
                 boton_play, boton_stop,
             ], wrap=True, spacing=8),
-            lbl, actual, enlazado,
+            lbl, actual, enlazado, entregas,
             ft.Divider(), dibujo,
             ft.Text("Modelo: cada nodo guarda dato, prev y next; cola.next = cabeza y cabeza.prev = cola.",
                     size=12, italic=True),
         ], scroll=ft.ScrollMode.AUTO, expand=True),
     )
+
+    # El modo automático refresca esta vista sin manipular sus controles internos.
+    return (contenedor, dibujar) if devolver_actualizar else contenedor

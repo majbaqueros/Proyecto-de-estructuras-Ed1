@@ -1,13 +1,13 @@
 [project]
-name = "ed1-simulador-logistico"
-version = "1.0.0"
-description = "Simulador de estructuras enlazadas y logistica con Flet"
-requires-python = ">=3.10"
-dependencies = ["flet==1.0.4"]
+name = "ed1-logistica-web"
+version = "2.0.0"
+description = "Plataforma multiusuario logística con Flet y PostgreSQL"
+requires-python = ">=3.11,<3.14"
+dependencies = ["flet[all]==1.0.4", "fastapi==0.144.0", "SQLAlchemy>=2.0,<2.1", "psycopg[binary]>=3.2,<3.4", "argon2-cffi>=23.1,<26"]
 
 [tool.flet]
-product = "ED1 Simulador Logistico"
-company = "Proyecto academico ED1"
+product = "ED1 Plataforma Logistica"
+company = "Proyecto ED1"
 org = "edu.ed1"
 
 [tool.pytest.ini_options]

@@ -34,6 +34,26 @@ class PriorityQueue:
         self._tamaño -= 1
         return dato
 
+    def desencolar_si(self, predicado):
+        """Extrae el paquete de mayor prioridad que cumpla la condición. O(n).
+
+        No se despachan paquetes de otras zonas. Se mantiene el orden de
+        prioridad y llegada entre los paquetes que permanecen en cola.
+        """
+        anterior = None
+        actual = self.cabeza
+        while actual is not None:
+            paquete, prioridad = actual.dato
+            if predicado(paquete):
+                if anterior is None:
+                    self.cabeza = actual.next
+                else:
+                    anterior.next = actual.next
+                self._tamaño -= 1
+                return paquete, prioridad
+            anterior, actual = actual, actual.next
+        return None
+
     def eliminar_dato(self, dato):
         """Retira el primer elemento con identidad de objeto igual (para undo). O(n)."""
         anterior = None

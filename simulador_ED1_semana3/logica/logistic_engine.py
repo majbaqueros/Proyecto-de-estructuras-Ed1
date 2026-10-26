@@ -2,6 +2,7 @@ from estructuras.lista_doblemente import DoublyLinkedList
 from estructuras.colas import PriorityQueue, CircularQueue
 from estructuras.pila import Stack
 from modelos.entidades import Paquete, Vehiculo, Ruta, Almacen
+from logica.destinos import clave_destino
 class LogisticEngine:
     """Motor de logística que usa estructuras de datos para gestionar paquetes."""
     def __init__(self):
@@ -26,6 +27,24 @@ class LogisticEngine:
                 self.almacen.paquetes_almacenados.remove(paquete)
             return paquete
         return None
+
+    def despachar_en_destino(self, parada):
+        """Entrega únicamente el paquete prioritario de la parada actual.
+
+        Un paquete de prioridad alta destinado a otra zona permanece pendiente.
+        """
+        if parada is None:
+            return None
+        encontrado = self.paquetes_pendientes.desencolar_si(
+            lambda paquete: clave_destino(paquete.destino) == clave_destino(parada)
+        )
+        if encontrado is None:
+            return None
+        paquete, _ = encontrado
+        self.historial_envios.push(("despachar", paquete))
+        if paquete in self.almacen.paquetes_almacenados:
+            self.almacen.paquetes_almacenados.remove(paquete)
+        return paquete
     def deshacer_ultima_accion(self):
         accion = self.historial_envios.pop()
         if accion:
