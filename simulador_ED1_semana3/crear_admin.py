@@ -1,5 +1,7 @@
 """CLI local interactiva: no imprime ni almacena contraseñas en código."""
 from getpass import getpass
+from dotenv import load_dotenv
+load_dotenv()
 from portal.db import configure_db
 from portal.services import bootstrap_admin
 

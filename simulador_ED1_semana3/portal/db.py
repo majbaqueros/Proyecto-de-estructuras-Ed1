@@ -76,11 +76,30 @@ class EventoAuditoria(Base):
     __table_args__ = (Index("idx_bitacora_tenant_fecha", "organizacion_id", "fecha"),)
 
 
+class LoginThrottle(Base):
+    __tablename__ = "login_throttles"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    fallos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    inicio_ventana: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    codigo_hash: Mapped[str] = mapped_column(String(100), nullable=False)
+    creado: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expira: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    intentos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    utilizado: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+
 def database_url():
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
-        if os.environ.get("RENDER") or os.environ.get("ENVIRONMENT") == "production":
-            raise RuntimeError("Configura DATABASE_URL de PostgreSQL en Render")
+        if os.environ.get("VERCEL") or os.environ.get("ENVIRONMENT") == "production":
+            raise RuntimeError("Configura DATABASE_URL de PostgreSQL (Vercel requiere base externa persistente)")
         return "sqlite:///./ed1_desarrollo.sqlite3"  # solo desarrollo local
     if url.startswith("postgres://"):
         url = "postgresql+psycopg://" + url[len("postgres://"):]
@@ -98,7 +117,7 @@ def configure_db(url=None):
     if _engine is not None:
         _engine.dispose()
     connection = url or database_url()
-    options = {"pool_pre_ping": True}
+    options = {"pool_pre_ping": True, "pool_recycle": 240}
     if connection.startswith("sqlite"):
         options["connect_args"] = {"check_same_thread": False}
     _engine = create_engine(connection, **options)

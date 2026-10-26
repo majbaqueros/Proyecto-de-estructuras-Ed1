@@ -1,9 +1,11 @@
-__pycache__/
-*.pyc
-.venv/
 .env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vercel/
 *.sqlite3
 *.db
-.flet/
-build/
-.pytest_cache/
+.DS_Store

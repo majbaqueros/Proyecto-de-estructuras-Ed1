@@ -1,5 +1,8 @@
-flet[all]==1.0.4
-fastapi==0.144.0
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
 SQLAlchemy>=2.0,<2.1
 psycopg[binary]>=3.2,<3.4
 argon2-cffi>=23.1,<26
+itsdangerous>=2.2,<3
+httpx>=0.27,<1
+python-dotenv>=1,<2

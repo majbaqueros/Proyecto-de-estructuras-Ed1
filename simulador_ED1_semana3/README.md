@@ -1,79 +1,103 @@
-# ED1 — Plataforma logística multiusuario (Web)
+# ED1 — Plataforma logística web (Vercel y localhost)
 
-Reorganización del proyecto de las tres semanas: **Python + Flet (sitio dinámico) + PostgreSQL + Render**. Los usuarios entran mediante navegador web. El sistema no requiere instalar VS Code, PostgreSQL o Docker en el equipo del cliente.
+Aplicación **FastAPI + HTML/CSS/JavaScript + PostgreSQL externo**. Se ha sustituido el servidor web Flet de la versión anterior porque Vercel ejecuta FastAPI como función web y necesita una instancia `app`. La **lógica Python original** de lista doblemente enlazada circular, cola de prioridad, métricas y reglas por organización se conserva.
 
-## Funcionalidades
+## Incluye
 
-| Rol | Acciones |
-|---|---|
-| Administrador | Inicia sesión; gestiona ubicaciones de su organización; crea recepcionistas; obtiene código de registro de clientes; consulta los pedidos de su organización; aprueba o rechaza solicitudes; ejecuta rutas y benchmark; ve la bitácora privada. |
-| Recepcionista | Inicia sesión; consulta los pedidos de su organización; aprueba/rechaza solicitudes y asigna prioridad; recorre rutas y realiza entregas al llegar a cada zona; consulta métricas. **No accede a la bitácora ni cambia ubicaciones.** |
-| Cliente | Se registra usando el **código de organización** que le entrega el administrador, inicia sesión, consulta las ubicaciones habilitadas, solicita paquetes y ve **únicamente sus propios pedidos**. |
+- **Administrador:** gestiona ubicaciones; crea recepcionistas; consulta bitácora; ve pedidos, aprueba o rechaza; ejecuta rutas, entregas y métricas.
+- **Recepcionista:** ve pedidos de su organización; aprueba y asigna prioridad; avanza los vehículos para entregar los paquetes cuya zona coincide. No tiene acceso a la bitácora ni modifica ubicaciones.
+- **Cliente:** se registra con código de organización, inicia sesión, elige **solo destinos disponibles**, solicita envíos y ve sus pedidos.
+- **Inicio de sesión seguro:** hash de contraseña Argon2; cookies firmadas HttpOnly (8 h), CSRF para modificaciones, aislamiento por organización en cada consulta y bloqueos de intentos de login guardados en la BD.
+- **Olvidé mi contraseña:** solicitud de código de 6 dígitos por correo, válido **10 minutos**, máximo **5 intentos** de confirmación, 1 solicitud/minuto y 3/hora por cuenta; códigos guardados como HMAC, nunca texto plano; al cambiar contraseña se invalidan las sesiones previas.
+- **Bitácora:** registros por organización, visibles solo para su administrador. Guarda accesos, solicitudes, decisiones, cambios de paradas, entregas, ejecuciones de benchmark y recuperaciones de contraseña (sin revelar el código).
+- **Sin simulación automática de paquetes ni Torres de Hanói.** Permanece el botón **Recorrer una vuelta** para una demostración manual de ruta.
 
-### Estado de un paquete
-
-`solicitado` (cliente) → `aprobado` (recepcionista/admin) → `entregado` (cuando el vehículo llega a su destino). El recepcionista puede `rechazar` una solicitud pendiente.
-
-- El cliente **no puede elegir un destino ajeno** ni elevar la prioridad. La prioridad solo la asigna recepción/admin al aprobar, 1=alta, 2=media, 3=baja.
-- El administrador controla la lista de rutas; los nombres se normalizan para evitar duplicados como `La Paz` y `la paz`.
-- La ruta se reconstruye como **lista doblemente enlazada circular**, a partir de las ubicaciones persistentes en PostgreSQL, y el reparto de paquetes aprobados se decide mediante una **cola de prioridad enlazada**. El pedido solo se marca como `entregado` en la zona de destino.
-- Todos los cambios relevantes (altas, accesos, solicitudes, aprobaciones, rechazos, rutas, entregas y ejecución de benchmark) generan eventos en la **bitácora**, consultable únicamente por administradores de la organización.
-- No se incluyen la simulación automática ni Torres de Hanói.
-
-## Estructura
+## Estructura del proyecto
 
 ```text
-main.py                 Interfaz Flet, inicio de sesión y paneles según rol
-portal/db.py            Modelos SQLAlchemy de PostgreSQL: organizaciones, usuarios,
-                        paradas, paquetes y bitácora
-portal/security.py      Hash Argon2 de contraseñas y normalización
-portal/services.py      Reglas, validaciones, permisos, aislamiento entre organizaciones,
-                        rutas y registro de auditoría
-estructuras/            Listas, cola enlazada priorizada y pilas construidas manualmente
-logica/metricas.py      Benchmark O(1) frente a O(n) y cálculo de memoria
-start_render.py         Adapta el PORT de Render al servidor Flet
-render.yaml             Blueprint de Render (Web Service + PostgreSQL)
-tests/test_portal.py    Pruebas de roles, restricciones, entregas y multiempresa
+main.py                # import de FastAPI app (resuelve FASTAPI_ENTRYPOINT_NOT_FOUND)
+app.py                 # API HTTP, sesiones, cookies, permisos y rutas
+public/index.html      # interfaz compatible con Chrome, Edge y celular
+public/client.js       # interacciones web contra la API
+public/style.css       # estilos responsivos
+portal/db.py           # tablas SQLAlchemy para PostgreSQL/SQLite local
+portal/services.py     # permisos, logística, bitácora, rutas y colas
+portal/recovery.py     # códigos de recuperación y envío de correo
+portal/security.py     # Argon2, normalización de emails/destinos
+estructuras/           # nodos, listas enlazadas, cola de prioridad
+logica/metricas.py     # memoria y benchmark O(1) frente a O(n)
+crear_admin.py         # alta inicial con clave introducida sin eco
+start_local.bat        # acceso local en Windows
+requirements.txt       # dependencias del servidor
+.env.example           # plantilla de variables (NO subas .env)
+tests/                 # pruebas automáticas
 ```
 
-## Ejecutar en desarrollo local (solo quien desarrolla)
+## A. Ejecutar en localhost — Windows y VS Code
 
-Es posible probar sin instalar PostgreSQL **solo en desarrollo**: si falta `DATABASE_URL`, el proyecto utiliza SQLite local `ed1_desarrollo.sqlite3`. **Render no acepta ese fallback: exige PostgreSQL**.
+Debes abrir en VS Code **la carpeta interior que contiene `main.py`**, no su carpeta superior. En PowerShell:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-```
-
-Crear administrador inicial desde Python (evita guardar contraseñas reales en el código):
-
-```powershell
 .\.venv\Scripts\python.exe crear_admin.py
+.\.venv\Scripts\python.exe main.py
 ```
 
-Luego iniciar:
+Abre **http://127.0.0.1:8001/**. Si usas Python 3.12, cambia `-3.11` por `-3.12`. También puedes ejecutar `start_local.bat` (instala dependencias antes, ejecuta el servidor; el primer administrador se crea con `crear_admin.py`).
 
-```powershell
-.\.venv\Scripts\flet.exe run --web --port 8001 main.py
-```
+**Por defecto, en local se utiliza SQLite** (`ed1_desarrollo.sqlite3`) sin necesitar PostgreSQL ni Docker. Es un modo de desarrollo, no sustituto de la base persistente para producción. Si quieres probar PostgreSQL local, configura `DATABASE_URL` en `.env` con su cadena de conexión.
 
-Entrar en `http://127.0.0.1:8001` con el correo y contraseña definidos en el paso anterior. En **Cuenta**, el administrador verá el código de registro para los clientes.
+### Recuperación de contraseña en localhost
 
-Pruebas:
+Sin configurar un servicio de correo, **el código de prueba aparece solo en la terminal** (modo `EMAIL_BACKEND=console`), nunca en la respuesta web. Sirve para probar el flujo sin usar Gmail. Para **enviar un email real a Gmail**:
+
+- Usa `EMAIL_BACKEND=resend`, `RESEND_API_KEY` y `MAIL_FROM` con remitente de un **dominio verificado**; o
+- Exclusivamente en local, puedes usar `EMAIL_BACKEND=gmail_smtp`, `GMAIL_USER=cuenta@gmail.com`, `GMAIL_APP_PASSWORD` (contraseña de aplicación de Google; no tu contraseña normal). Evita SMTP de Gmail en Vercel.
+
+Para cargar automáticamente un archivo `.env` local, copia `.env.example` a `.env` y edita los valores. NO publiques ese archivo.
+
+## B. Publicar en Vercel (sin instalar nada en los teléfonos)
+
+1. Sube el contenido de **esta carpeta `ED1_Plataforma_Web/`** a un repositorio GitHub. Debe incluir `main.py`, `app.py`, `requirements.txt`, `pyproject.toml`, `public/`, `portal/` y `estructuras/`.
+2. En Vercel > **Add New → Project**, importa el repositorio.
+3. Si lo subiste como subcarpeta, ajusta **Root Directory: `ED1_Plataforma_Web`**. Si los archivos están en la raíz del repo, deja Root Directory vacío. Selecciona FastAPI como Framework.
+4. Crea una **base PostgreSQL externa persistente** (por ejemplo, Neon o Supabase). Vercel por sí solo no suministra una base PostgreSQL persistente con los archivos del repo. Pon la cadena de conexión en `DATABASE_URL` (con SSL conforme indique el proveedor).
+5. En **Settings → Environment Variables** configura:
+
+| Variable | Obligatoria | Valor / explicación |
+|---|---|---|
+| `DATABASE_URL` | Sí | URL de PostgreSQL externo, incluida autenticación y SSL |
+| `AUTH_SECRET` | Sí | Clave aleatoria de mínimo 32 caracteres; generar con `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ENVIRONMENT` | Sí | `production` |
+| `EMAIL_BACKEND` | Sí | `resend` |
+| `RESEND_API_KEY` | Sí para recuperación | API Key de Resend |
+| `MAIL_FROM` | Sí para recuperación | Remitente verificado, por ejemplo `ED1 <cuentas@tu-dominio.com>` |
+| `ADMIN_BOOTSTRAP_ORG` | Solo primera instalación | Nombre de empresa |
+| `ADMIN_BOOTSTRAP_EMAIL` | Solo primera instalación | Correo inicial admin |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Solo primera instalación | Contraseña inicial admin (12+ caracteres) |
+
+6. Pulsa **Deploy**. La variable `app` en `main.py` es una instancia de FastAPI; desaparece el error `FASTAPI_ENTRYPOINT_NOT_FOUND` que producía el antiguo archivo Flet.
+7. Abre la URL asignada por Vercel. Comprueba `https://tu-dominio.vercel.app/api/health` (debe responder `database: conectada`), inicia sesión como administrador y crea destinos. Luego registra un cliente y prueba el correo de recuperación usando una dirección Gmail real.
+8. **Después de crear el admin**, elimina las tres variables `ADMIN_BOOTSTRAP_*` del proyecto y vuelve a desplegar. Nunca incluyas contraseñas reales en los archivos Git.
+
+**Importante:** Cualquier cambio en las variables de Vercel requiere **Redeploy** para afectar a la siguiente versión. Si subes únicamente los archivos antiguos, el error original continuará.
+
+### Nota sobre Gmail
+
+Tu usuario puede **recibir el código en su dirección `@gmail.com`** aun cuando el correo se envía mediante Resend. El remitente, en cambio, debe estar autorizado/verificado en Resend. Sin `RESEND_API_KEY` y `MAIL_FROM` reales no es posible hacer llegar correos externos; el ZIP no trae secretos ni una cuenta de Gmail configurada.
+
+## C. Ejecutar pruebas
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-## Publicar en Render
+Incluye pruebas del inicio de sesión HTTP, cookies, CSRF, separación entre empresas, roles, paquete que se entrega solo en su destino, contraseña olvidada, invalidación de sesiones anteriores y estructuras enlazadas.
 
-Lee **`docs/DESPLIEGUE_RENDER.md`**. El archivo `render.yaml` crea el servicio web y PostgreSQL. Los usuarios solo necesitarán la dirección `https://<tu-servicio>.onrender.com` que Render asigne **después** del despliegue: este paquete no está publicado aún.
+## Límites de esta entrega
 
-## Limitaciones importantes antes de ponerlo en producción
-
-- Es un **MVP educativo**, no un sistema de producción auditado. El inicio de sesión es por sesión Flet; al recargar/reabrir podría solicitar iniciar sesión nuevamente. No incluye verificación de correo, recuperación de contraseña, segundo factor, políticas de retención de datos ni confirmación de recepción por destinatario.
-- La limitación de intentos de login es local al proceso. Si se usan varios workers o instancias debe trasladarse a un almacenamiento compartido (Redis). No existe un WAF configurado.
-- Las tablas se crean con `Base.metadata.create_all()`. Para upgrades de producción se requieren **migraciones Alembic**, respaldos, monitoreo y procedimientos de restauración.
-- La bitácora no tiene pantalla para modificar/borrar eventos, pero **no es una bitácora criptográficamente inmutable** frente a un administrador de la base de datos.
-- Solo se validaron las reglas de negocio con **SQLite de prueba**; no se validó conexión real a PostgreSQL ni la interfaz Flet en el servidor Render en este entorno. Comprobar ambas antes de invitar usuarios reales.
-- Este diseño es por organización (tenant): administradores diferentes no comparten datos, y los clientes ven sus propios pedidos.
+- El código se ha probado con SQLite temporal y el cliente HTTP de FastAPI; **no se ha desplegado desde aquí en tu cuenta Vercel**, enviado correo real ni validado PostgreSQL remoto. Esos tres puntos requieren credenciales/infraestructura que no vienen en el ZIP.
+- Para producción real aplica migraciones Alembic, respaldos de PostgreSQL, observabilidad, WAF/rate limits por IP e inspección de seguridad adicional. Las tablas se crean con SQLAlchemy `create_all` y esta entrega es un MVP educativo.
+- La bitácora solo la ve la cuenta administradora a través de la API; un operador con privilegios directos sobre la base de datos puede modificar registros. Para auditoría regulada necesitarías registros inmutables externos.
+- En local el contador del benchmark vive en el proceso actual; en Vercel se registra el evento en PostgreSQL. El panel de operaciones por segundo calcula eventos de bitácora de los últimos cinco segundos (no los clics de pantalla).

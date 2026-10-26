@@ -3,20 +3,18 @@
 La interfaz no recibe nunca una sesión SQLAlchemy ni acceso directo al repositorio.
 """
 import secrets
-import threading
-import time
+import hashlib
+from datetime import timedelta, timezone
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
-from .db import (session, Organizacion, Usuario, Parada, PaqueteDB, EventoAuditoria,
+from .db import (session, Organizacion, Usuario, Parada, PaqueteDB, EventoAuditoria, LoginThrottle,
                  utcnow)
 from .security import hash_password, check_password, normalize_email, normalize_place
 from estructuras.lista_circular_doble import ListaDoblementeCircular
 from estructuras.colas import PriorityQueue
 
 ROLES = {"admin", "recepcionista", "cliente"}
-_login_errors = {}
-_login_mutex = threading.Lock()
 
 
 def _actor(db, user_id, allowed=None):
@@ -74,29 +72,47 @@ def bootstrap_admin(org_name, email, password, admin_name="Administrador"):
 
 
 def login(email, password):
+    """Límite de intentos persistente en PostgreSQL, válido entre funciones Vercel."""
     normalized = normalize_email(email)
-    # Limitación elemental en memoria por correo; varios procesos necesitan Redis.
-    now = time.monotonic()
-    with _login_mutex:
-        attempts = [t for t in _login_errors.get(normalized, []) if now - t < 600]
-        _login_errors[normalized] = attempts
-        if len(attempts) >= 5:
-            raise ValueError("Demasiados intentos. Vuelve a probar en 10 minutos")
+    key = hashlib.sha256(normalized.encode()).hexdigest()
+    now = utcnow()
     failed = False
+    blocked = False
     result = None
     with session() as db, db.begin():
-        user = db.scalar(select(Usuario).where(Usuario.email == normalized))
-        if not user or not user.activo or not check_password(user.password_hash, password):
-            failed = True
-            with _login_mutex:
-                _login_errors.setdefault(normalized, []).append(now)
-            if user:
-                _log(db, user, "LOGIN_FALLIDO", "usuario", user.id)
-        else:
-            with _login_mutex:
-                _login_errors.pop(normalized, None)
-            _log(db, user, "LOGIN_CORRECTO", "usuario", user.id)
-            result = _public_user(user)
+        throttle = db.scalar(select(LoginThrottle).where(LoginThrottle.key == key).with_for_update())
+        if throttle:
+            since = throttle.inicio_ventana
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            if now - since >= timedelta(minutes=10):
+                throttle.fallos = 0
+                throttle.inicio_ventana = now
+                throttle.bloqueado_hasta = None
+            until = throttle.bloqueado_hasta
+            if until and until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            if until and until > now:
+                blocked = True
+        if not blocked:
+            user = db.scalar(select(Usuario).where(Usuario.email == normalized))
+            if not user or not user.activo or not check_password(user.password_hash, password):
+                failed = True
+                if not throttle:
+                    throttle = LoginThrottle(key=key, fallos=0, inicio_ventana=now)
+                    db.add(throttle)
+                throttle.fallos += 1
+                if throttle.fallos >= 5:
+                    throttle.bloqueado_hasta = now + timedelta(minutes=10)
+                if user:
+                    _log(db, user, "LOGIN_FALLIDO", "usuario", user.id)
+            else:
+                if throttle:
+                    db.delete(throttle)
+                _log(db, user, "LOGIN_CORRECTO", "usuario", user.id)
+                result = _public_user(user)
+    if blocked:
+        raise ValueError("Demasiados intentos. Vuelve a probar en 10 minutos")
     if failed:
         raise ValueError("Correo o contraseña incorrectos")
     return result
